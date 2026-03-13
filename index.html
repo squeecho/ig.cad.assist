@@ -184,33 +184,53 @@ def generate_power():
     deleted = 0
 
     # ★1. 위계 처리
-    # (a) 불필요 레이어 OFF: 치수, 조명, 실명 등
-    OFF_LAYERS = {"S-DIM", "★NS_dim", "LIGHT", "C-LIGHT", "OJ-CH-LIGHT", "★NS_wall", ".", "실명"}
+    # (a) 21개 레이어 OFF
+    OFF_LAYERS = {
+        "S-DIM","★NS_dim","LIGHT","C-LIGHT","OJ-CH-LIGHT","★NS_wall",
+        ".","실명","SHEET","FUR-1","F-CLOUD","I-F-TXT",
+        "주방기구","2D","IN-FUR","I-FUR","F-fur-2","F4","P",
+        "text","TEX"
+    }
     for layer in _doc.layers:
         if layer.dxf.name in OFF_LAYERS:
             layer.off()
-    # (b) 배경 레이어 연하게 (color 252 = 매우 연한 회색)
-    BG_LAYERS = {"★NS_text", "★NS_fur", "★NS_hatch", "★NS_win",
-                 "text", "TEX", "I-F-TXT", "IN-FUR", "I-FUR", "FUR-1",
-                 "F-fur-2", "F4", "F-CLOUD", "KM가상2", "KM외곽1", "KM외곽3",
-                 "주방기구", "키친마루-주방", "레이어 1", "Layer 1", "SHEET",
-                 "6", "P", "COL", "2D", "Han-Wal", "PLUM", "DI"}
-    for layer in _doc.layers:
-        if layer.dxf.name in BG_LAYERS:
-            layer.dxf.color = 252  # 아주 연한 회색
-        elif layer.dxf.name == "0":
-            layer.dxf.color = 253  # 0 레이어도 연하게
-    # (c) 모델스페이스 직접 엔티티 색상 변경
+        elif layer.dxf.name != "Defpoints":
+            layer.dxf.color = 252
+    # (b) 블록 내부 전체 color=252
+    for block in _doc.blocks:
+        if block.name.startswith("*"): continue
+        for e in block:
+            try: e.dxf.color = 252
+            except: pass
+    # (c) 모델스페이스 color=252
     for e in msp:
-        if e.dxftype() == "INSERT":
-            e.dxf.color = 252  # 블록 INSERT 연하게
-        elif e.dxftype() == "DIMENSION":
-            e.dxf.color = 252
-        elif e.dxftype() in ("TEXT", "MTEXT"):
-            if e.dxf.layer != "OJ-CH-TEXT":
-                e.dxf.color = 252
-        elif e.dxftype() in ("LINE", "LWPOLYLINE", "CIRCLE", "ARC"):
-            e.dxf.color = 252
+        try: e.dxf.color = 252
+        except: pass
+    # (d) RMFHEHUSDUFUEEEEEFE 블록 정리
+    try:
+        blk_rmf = _doc.blocks.get("RMFHEHUSDUFUEEEEEFE")
+        if blk_rmf:
+            rmf_del = [e for e in blk_rmf if e.dxftype() in ("MULTILEADER","LEADER","DIMENSION","WIPEOUT")]
+            for e in rmf_del:
+                try: blk_rmf.delete_entity(e)
+                except: pass
+    except: pass
+    # (e) rheuwrhgwuer 블록 정리 (사람/치수/번호)
+    try:
+        blk_rh = _doc.blocks.get("rheuwrhgwuer")
+        if blk_rh:
+            PERSON_BLOCKS = {"QKrtptel","TPFVMQK","550","550111r","RMRMNT"}
+            rh_del = []
+            for e in blk_rh:
+                try:
+                    if e.dxftype() == "INSERT" and e.dxf.name in PERSON_BLOCKS: rh_del.append(e)
+                    elif e.dxftype() == "DIMENSION": rh_del.append(e)
+                    elif e.dxf.layer == "SHEET": rh_del.append(e)
+                except: pass
+            for e in rh_del:
+                try: blk_rh.delete_entity(e)
+                except: pass
+    except: pass
 
     # ★2. 범례표 영역 기존 엔티티 삭제 (x>19000, y<7000)
     to_del = []
