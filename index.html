@@ -183,13 +183,36 @@ def generate_power():
     msp = _doc.modelspace()
     deleted = 0
 
-    # ★1. 위계 처리: 모든 레이어 색상을 연하게 (color 9 = 진한 회색)
-    KEEP_LAYERS = {"Defpoints"}
+    # ★1. 위계 처리
+    # (a) 불필요 레이어 OFF: 치수, 조명, 실명 등
+    OFF_LAYERS = {"S-DIM", "★NS_dim", "LIGHT", "C-LIGHT", "OJ-CH-LIGHT", "★NS_wall", ".", "실명"}
     for layer in _doc.layers:
-        if layer.dxf.name not in KEEP_LAYERS:
-            layer.dxf.color = 9
+        if layer.dxf.name in OFF_LAYERS:
+            layer.off()
+    # (b) 배경 레이어 연하게 (color 252 = 매우 연한 회색)
+    BG_LAYERS = {"★NS_text", "★NS_fur", "★NS_hatch", "★NS_win",
+                 "text", "TEX", "I-F-TXT", "IN-FUR", "I-FUR", "FUR-1",
+                 "F-fur-2", "F4", "F-CLOUD", "KM가상2", "KM외곽1", "KM외곽3",
+                 "주방기구", "키친마루-주방", "레이어 1", "Layer 1", "SHEET",
+                 "6", "P", "COL", "2D", "Han-Wal", "PLUM", "DI"}
+    for layer in _doc.layers:
+        if layer.dxf.name in BG_LAYERS:
+            layer.dxf.color = 252  # 아주 연한 회색
+        elif layer.dxf.name == "0":
+            layer.dxf.color = 253  # 0 레이어도 연하게
+    # (c) 모델스페이스 직접 엔티티 색상 변경
+    for e in msp:
+        if e.dxftype() == "INSERT":
+            e.dxf.color = 252  # 블록 INSERT 연하게
+        elif e.dxftype() == "DIMENSION":
+            e.dxf.color = 252
+        elif e.dxftype() in ("TEXT", "MTEXT"):
+            if e.dxf.layer != "OJ-CH-TEXT":
+                e.dxf.color = 252
+        elif e.dxftype() in ("LINE", "LWPOLYLINE", "CIRCLE", "ARC"):
+            e.dxf.color = 252
 
-    # ★2. 범례표 영역 기존 엔티티 삭제 (x>19000, y<7000 모델스페이스)
+    # ★2. 범례표 영역 기존 엔티티 삭제 (x>19000, y<7000)
     to_del = []
     for e in msp:
         ex = ey = None
@@ -200,18 +223,11 @@ def generate_power():
         elif hasattr(e.dxf, "start"):
             ex, ey = e.dxf.start.x, e.dxf.start.y
         if ex is not None and ex > 19000 and ey < 7000:
-            # 범례표 영역 — 삭제
             to_del.append(e)
-        # 좌석수/면적 텍스트 삭제 (어디에 있든)
         if e.dxftype() in ("TEXT", "MTEXT"):
-            txt = ""
-            if e.dxftype() == "TEXT":
-                txt = e.dxf.text
-            else:
-                txt = e.text or ""
+            txt = e.dxf.text if e.dxftype() == "TEXT" else (e.text or "")
             if any(kw in txt for kw in ["좌석", "바테이블", "2인 테이블"]):
                 to_del.append(e)
-            # 평/면적 (좌하단)
             if ex is not None and ex < 5000 and ey < 5000:
                 if any(kw in txt for kw in ["평 :", "면적"]):
                     to_del.append(e)
@@ -359,8 +375,8 @@ async function hFile(file){
 
 async function generate(){
   log('');log('=== 전기도면 DXF 생성 ===','inf');
-  log('1. 위계처리 (전 레이어 color=9)');
-  log('2. 범례표 영역 기존 엔티티 삭제');
+  log('1. 위계처리 (레이어OFF + color=252)');
+  log('2. 범례표/좌석수 삭제 + 치수선 OFF');
   log('3. 벽면 투영 + A$C1b8849f8 블록');
   try{
     var resStr=await py.runPythonAsync('_wc,_lc,_del=generate_power()\njson.dumps({"wp":_wc,"lan":_lc,"del":_del})');
