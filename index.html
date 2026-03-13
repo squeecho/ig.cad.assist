@@ -22,7 +22,7 @@ body{background:var(--bg);color:var(--tx);font-family:var(--ft);display:flex;hei
 .sr span:first-child{color:var(--tx2)}.sr span:last-child{font-weight:500}
 .btn{width:calc(100% - 32px);padding:12px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--ft);margin:0 16px 8px;transition:all .15s}
 .bp{background:var(--ac);color:#fff}.bp:hover{background:var(--ac2)}.bp:disabled{opacity:.4;cursor:not-allowed}
-.bdl{background:var(--bg3);color:var(--tx);border:1px solid var(--bd)}.bdl:hover{background:var(--bd)}
+.bg-dl{background:#2d6b3f;color:#fff;border:none}.bg-dl:hover{background:#3a8a50}
 .el{max-height:150px;overflow-y:auto}
 .ei{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,.04)}
 .bg{display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:600}
@@ -55,7 +55,7 @@ body{background:var(--bg);color:var(--tx);font-family:var(--ft);display:flex;hei
 <div class="sec" id="iS" style="display:none"><div class="sec-t">◎ 파싱 결과</div><div class="sec-b"><div class="sr"><span>텍스트</span><span id="sT">-</span></div><div class="sr"><span>장비 인식</span><span id="sE" style="color:var(--grn)">-</span></div><div class="sr"><span>WP</span><span id="sW" style="color:#ED7D31">-</span></div><div class="sr"><span>일반</span><span id="sN">-</span></div><div class="sr"><span>LAN</span><span id="sL" style="color:#70AD47">-</span></div></div></div>
 <div class="sec" id="eS" style="display:none"><div class="sec-t">◎ 인식된 장비</div><div class="sec-b el" id="eL"></div></div>
 <button class="btn bp" id="gB" style="display:none" disabled onclick="generate()">▶ 전기도면 생성</button>
-<button class="btn bdl" id="dB" style="display:none" onclick="dlDXF()">↓ POWER PLAN DXF 다운로드</button>
+<button class="btn bg-dl" id="dB" style="display:none" onclick="dlDXF()">↓ POWER PLAN DXF 다운로드</button>
 <div class="la"><div class="la-t">■ 로그</div><div class="la-c" id="lg">Python 엔진 준비 중...</div></div>
 </div>
 <div class="mn">
@@ -99,21 +99,16 @@ def extract_walls(doc, bn=None, tr=(0,0), d=0):
         if e.dxftype() == "LINE" and e.dxf.layer in ("Han-Wal", "0"):
             x1, y1 = e.dxf.start.x+tr[0], e.dxf.start.y+tr[1]
             x2, y2 = e.dxf.end.x+tr[0], e.dxf.end.y+tr[1]
-            length = math.sqrt((x2-x1)**2+(y2-y1)**2)
-            if length > 1000:
+            if math.sqrt((x2-x1)**2+(y2-y1)**2) > 1000:
                 walls.append(((x1,y1),(x2,y2)))
         elif e.dxftype() == "LWPOLYLINE" and e.dxf.layer in ("Han-Wal", "0"):
             pts = [(p[0]+tr[0], p[1]+tr[1]) for p in e.get_points(format="xy")]
             for i in range(len(pts)-1):
-                x1,y1 = pts[i]
-                x2,y2 = pts[i+1]
-                length = math.sqrt((x2-x1)**2+(y2-y1)**2)
-                if length > 1000:
+                x1,y1 = pts[i]; x2,y2 = pts[i+1]
+                if math.sqrt((x2-x1)**2+(y2-y1)**2) > 1000:
                     walls.append(((x1,y1),(x2,y2)))
         elif e.dxftype() == "INSERT" and d < 5:
-            wx = e.dxf.insert.x+tr[0]
-            wy = e.dxf.insert.y+tr[1]
-            walls.extend(extract_walls(doc, e.dxf.name, (wx,wy), d+1))
+            walls.extend(extract_walls(doc, e.dxf.name, (e.dxf.insert.x+tr[0], e.dxf.insert.y+tr[1]), d+1))
     return walls
 
 def pt_to_seg(px, py, x1, y1, x2, y2):
@@ -186,50 +181,122 @@ def process_dxf_file():
 def generate_power():
     global _doc, _equip, _walls
     msp = _doc.modelspace()
+    deleted = 0
+
+    # ★1. 위계 처리: 모든 레이어 색상을 연하게 (color 9 = 진한 회색)
+    KEEP_LAYERS = {"Defpoints"}
+    for layer in _doc.layers:
+        if layer.dxf.name not in KEEP_LAYERS:
+            layer.dxf.color = 9
+
+    # ★2. 범례표 영역 기존 엔티티 삭제 (x>19000, y<7000 모델스페이스)
+    to_del = []
+    for e in msp:
+        ex = ey = None
+        if hasattr(e.dxf, "insert"):
+            ex, ey = e.dxf.insert.x, e.dxf.insert.y
+        elif hasattr(e.dxf, "center"):
+            ex, ey = e.dxf.center.x, e.dxf.center.y
+        elif hasattr(e.dxf, "start"):
+            ex, ey = e.dxf.start.x, e.dxf.start.y
+        if ex is not None and ex > 19000 and ey < 7000:
+            # 범례표 영역 — 삭제
+            to_del.append(e)
+        # 좌석수/면적 텍스트 삭제 (어디에 있든)
+        if e.dxftype() in ("TEXT", "MTEXT"):
+            txt = ""
+            if e.dxftype() == "TEXT":
+                txt = e.dxf.text
+            else:
+                txt = e.text or ""
+            if any(kw in txt for kw in ["좌석", "바테이블", "2인 테이블"]):
+                to_del.append(e)
+            # 평/면적 (좌하단)
+            if ex is not None and ex < 5000 and ey < 5000:
+                if any(kw in txt for kw in ["평 :", "면적"]):
+                    to_del.append(e)
+
+    for e in set(to_del):
+        try:
+            msp.delete_entity(e)
+            deleted += 1
+        except:
+            pass
+
     if "OJ-CH-TEXT" not in [l.dxf.name for l in _doc.layers]:
         _doc.layers.add("OJ-CH-TEXT", color=7)
+
     wp_c = 0
     lan_c = 0
+
     for eq in _equip:
         if eq["type"] not in ("WP","NOR"): continue
-        # ★ Wall projection
         dist, wx, wy, orient = nearest_wall(eq["x"], eq["y"], _walls)
         c = 30 if eq["type"]=="WP" else 5
-        # Outlet circle
-        msp.add_circle((wx,wy),120,dxfattribs={"layer":"0","color":c})
-        msp.add_circle((wx-35,wy+15),18,dxfattribs={"layer":"0","color":c})
-        msp.add_circle((wx+35,wy+15),18,dxfattribs={"layer":"0","color":c})
-        msp.add_line((wx-80,wy+120),(wx+80,wy+120),dxfattribs={"layer":"0","color":c})
-        if eq["type"]=="WP":
-            msp.add_circle((wx,wy),75,dxfattribs={"layer":"0","color":c})
+
+        if eq["type"] == "WP":
+            if orient == "H":
+                sx, sy = (1.57, 1.57) if wy < eq["y"] else (-1.57, 1.57)
+                rot = 180.0 if wy < eq["y"] else 0.0
+            else:
+                sx, sy = (-1.57, 1.57) if wx > eq["x"] else (1.57, 1.57)
+                rot = 270.0 if wx > eq["x"] else 90.0
+            try:
+                msp.add_blockref("A$C1b8849f8", (wx, wy), dxfattribs={
+                    "layer": "0", "color": c, "xscale": sx, "yscale": sy, "rotation": rot})
+            except:
+                msp.add_circle((wx,wy),120,dxfattribs={"layer":"0","color":c})
             if orient == "H":
                 wpy = wy + (32 if wy < eq["y"] else -32)
                 msp.add_mtext("WP",dxfattribs={"layer":"0","char_height":80,"color":c,"insert":(wx-19,wpy)})
             else:
                 wpx = wx + (32 if wx > eq["x"] else -32)
                 msp.add_mtext("WP",dxfattribs={"layer":"0","char_height":80,"color":c,"insert":(wpx,wy-19)})
-            wp_c+=1
+            wp_c += 1
+        else:
+            msp.add_circle((wx,wy),110,dxfattribs={"layer":"0","color":c})
+            msp.add_circle((wx-25,wy+15),15,dxfattribs={"layer":"0","color":c})
+            msp.add_circle((wx+25,wy+15),15,dxfattribs={"layer":"0","color":c})
+            msp.add_line((wx-55,wy+110),(wx+55,wy+110),dxfattribs={"layer":"0","color":c})
+
         if eq["note"] and "랜선" in str(eq["note"]):
-            if orient == "H":
-                lx, ly = wx+200, wy
-            else:
-                lx, ly = wx, wy+200
-            msp.add_circle((lx,ly),100,dxfattribs={"layer":"0","color":3})
-            msp.add_mtext("L",dxfattribs={"layer":"0","char_height":100,"color":3,"insert":(lx-35,ly-40)})
-            lan_c+=1
+            lx = wx + (200 if orient=="H" else 0)
+            ly = wy + (0 if orient=="H" else 200)
+            msp.add_circle((lx,ly),110,dxfattribs={"layer":"0","color":3})
+            msp.add_text("L",dxfattribs={"layer":"0","color":3,"height":100,"insert":(lx-35,ly-45)})
+            lan_c += 1
+
+    # SW
+    sw_walls = [w for w in _walls if abs(w[0][0]-w[1][0]) < 100]
+    if sw_walls:
+        sw_wall = min(sw_walls, key=lambda w: w[0][0])
+        sw_x = sw_wall[0][0]
+        sw_y = (sw_wall[0][1] + sw_wall[1][1]) / 2
+        msp.add_circle((sw_x, sw_y-500), 110, dxfattribs={"layer":"0","color":5})
+        msp.add_text("S.W",dxfattribs={"layer":"0","color":5,"height":65,"insert":(sw_x-60,sw_y-525)})
+
+    # 범례표
     lx2,ly0=20300,5700
-    msp.add_text("SYMBOL",dxfattribs={"layer":"0","height":120,"insert":(lx2,ly0)})
-    msp.add_text("DESCRIPTION",dxfattribs={"layer":"0","height":120,"insert":(lx2+1500,ly0)})
-    msp.add_text("Q\\x27TY",dxfattribs={"layer":"0","height":120,"insert":(lx2+3900,ly0)})
-    legend=[("2구 콘센트","2EA"),("2구 방우형 콘센트",f"{wp_c}EA"),("4구 콘센트","2EA"),("2구 콘센트 (스텐)","6EA"),("전등(디밍기) 스위치 (스텐)","1EA"),("LAN선",f"{max(lan_c,4)}EA"),("집결지","1EA")]
+    msp.add_text("SYMBOL",dxfattribs={"layer":"0","height":120,"color":7,"insert":(lx2,ly0)})
+    msp.add_text("DESCRIPTION",dxfattribs={"layer":"0","height":120,"color":7,"insert":(lx2+1500,ly0)})
+    msp.add_text("Q\\x27TY",dxfattribs={"layer":"0","height":120,"color":7,"insert":(lx2+3900,ly0)})
+    msp.add_line((lx2-200,ly0-50),(lx2+4500,ly0-50),dxfattribs={"layer":"0","color":7})
+    legend=[("2구 콘센트","2EA",30),("2구 방우형 콘센트",f"{wp_c}EA",30),("4구 콘센트","2EA",30),
+            ("2구 콘센트 (스텐)","6EA",5),("전등(디밍기) 스위치 (스텐)","1EA",5),
+            ("LAN선",f"{max(lan_c,4)}EA",3),("집결지","1EA",3)]
     ly=ly0-400
-    for desc,qty in legend:
-        msp.add_circle((lx2+100,ly),110,dxfattribs={"layer":"0","color":30})
-        msp.add_mtext(desc,dxfattribs={"layer":"0","char_height":90,"insert":(lx2+700,ly+50)})
-        msp.add_mtext(qty,dxfattribs={"layer":"0","char_height":90,"insert":(lx2+3900,ly+50)})
+    for desc,qty,lc in legend:
+        msp.add_circle((lx2+100,ly),110,dxfattribs={"layer":"0","color":lc})
+        msp.add_mtext(desc,dxfattribs={"layer":"0","char_height":90,"color":7,"insert":(lx2+700,ly+50)})
+        msp.add_mtext(qty,dxfattribs={"layer":"0","char_height":90,"color":7,"insert":(lx2+3900,ly+50)})
+        msp.add_line((lx2-200,ly-170),(lx2+4500,ly-170),dxfattribs={"layer":"0","color":9})
         ly-=400
+
+    msp.add_mtext("* 구조적인 현장 상황에 따라 콘센트 위치를 *\\\\P유동적으로 적용할 수 있습니다.\\\\P* 높이 값 참고 사항 *",
+        dxfattribs={"layer":"0","char_height":80,"color":1,"insert":(13000,15500)})
+
     _doc.saveas("/tmp/output.dxf")
-    return wp_c, lan_c
+    return wp_c, lan_c, deleted
 `;
 
 async function initPy(){
@@ -267,8 +334,7 @@ async function hFile(file){
   log('ezdxf 파싱 중 (블록 재귀 + 벽체 탐색)...');
   try{
     var resStr=await py.runPythonAsync('process_dxf_file()');
-    var d=JSON.parse(resStr);
-    AT=d.texts;ME=d.equip;
+    var d=JSON.parse(resStr);AT=d.texts;ME=d.equip;
     var wc=ME.filter(function(e){return e.type==='WP'}).length;
     var nc=ME.filter(function(e){return e.type==='NOR'}).length;
     var lc=ME.filter(function(e){return e.note&&e.note.indexOf('랜선')>=0}).length;
@@ -292,13 +358,16 @@ async function hFile(file){
 }
 
 async function generate(){
-  log('');log('=== 전기도면 DXF 생성 (벽면 투영) ===','inf');
+  log('');log('=== 전기도면 DXF 생성 ===','inf');
+  log('1. 위계처리 (전 레이어 color=9)');
+  log('2. 범례표 영역 기존 엔티티 삭제');
+  log('3. 벽면 투영 + A$C1b8849f8 블록');
   try{
-    var resStr=await py.runPythonAsync('_wc,_lc=generate_power()\njson.dumps({"wp":_wc,"lan":_lc})');
+    var resStr=await py.runPythonAsync('_wc,_lc,_del=generate_power()\njson.dumps({"wp":_wc,"lan":_lc,"del":_del})');
     var res=JSON.parse(resStr);
     rBytes=py.FS.readFile('/tmp/output.dxf');
-    log('DXF 생성! WP:'+res.wp+' LAN:'+res.lan+' (벽면 투영 완료)','ok');
-    log('파일: '+(rBytes.length/1024).toFixed(0)+'KB');
+    log('WP:'+res.wp+' LAN:'+res.lan+' 삭제:'+res.del+'개','ok');
+    log('파일: '+(rBytes.length/1024).toFixed(0)+'KB','ok');
     document.getElementById('dB').style.display='block';
     stab(1);
   }catch(e){log('생성 오류: '+e.message,'er');console.error(e)}
