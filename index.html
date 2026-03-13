@@ -68,115 +68,169 @@ var py=null,rBytes=null,AT=[],ME=[],CT=0,VB={x:0,y:0,w:1e3,h:800},DG=false,DS={x
 function log(m,c){var e=document.getElementById('lg');e.innerHTML+='<div'+(c?' class="'+c+'"':'')+ '>'+m+'</div>';e.scrollTop=e.scrollHeight}
 function prog(p){document.getElementById('pB').style.width=p+'%'}
 
-var PY_SRC = [
-'import ezdxf, re, json, os',
-'',
-'def clean_mtext(raw):',
-'    text = raw.replace(chr(92)+"P", " ").replace("^J", " ")',
-'    text = re.sub(r"\\\\[fFCcWwHhAaQqLlOoKkTt][^;]*;", "", text)',
-'    text = re.sub(r"\\\\p[^;]*;", "", text)',
-'    text = text.replace("{", "").replace("}", "").replace(chr(92), "")',
-'    return re.sub(r"\\s+", " ", text).strip()',
-'',
-'def extract_texts(doc, bn=None, tr=(0,0), d=0):',
-'    r = []',
-'    ents = doc.blocks.get(bn) if bn else doc.modelspace()',
-'    if ents is None: return r',
-'    for e in ents:',
-'        if e.dxftype() == "TEXT":',
-'            r.append({"text": e.dxf.text.strip(), "x": e.dxf.insert.x+tr[0], "y": e.dxf.insert.y+tr[1]})',
-'        elif e.dxftype() == "MTEXT":',
-'            r.append({"text": clean_mtext(e.text), "x": e.dxf.insert.x+tr[0], "y": e.dxf.insert.y+tr[1]})',
-'        elif e.dxftype() == "INSERT" and d < 5:',
-'            r.extend(extract_texts(doc, e.dxf.name, (e.dxf.insert.x+tr[0], e.dxf.insert.y+tr[1]), d+1))',
-'    return r',
-'',
-'EQ_DB = [',
-'    ("음료 쇼케이스","음료쇼케이스","WP",0.5,2000,""),',
-'    ("상부 그리들","가스낮은그리들","WP",0,600,"랜선"),',
-'    ("서랍식냉장고","낮은서랍식냉장고","WP",0.6,600,"랜선"),',
-'    ("슬라이딩 온장고","서랍식온장고","WP",1.5,600,"단독"),',
-'    ("테이블온장고","테이블온장고","WP",0.6,600,""),',
-'    ("토핑냉장고","김밥테이블냉장고","WP",0.4,600,""),',
-'    ("수비드","수비드머신","WP",2.0,600,"단독"),',
-'    ("식세기","식기세척기","WP",3.8,1500,"단독직결"),',
-'    ("3구렌지","3구렌지","WP",0,1200,""),',
-'    ("튀김기","가스튀김기","WP",0.4,600,""),',
-'    ("45BOX","45박스","WP",1.2,2000,""),',
-'    ("쇼케이스","음료쇼케이스","WP",0.5,2000,""),',
-'    ("제빙기","제빙기","WP",1.2,600,"맥주+제빙기"),',
-'    ("그리들","가스그리들","WP",0,600,""),',
-'    ("정수기","정수기","NOR",0,"장내부",""),',
-'    ("온수기장","가스온수기","NOR",0,"높이맞춤",""),',
-'    ("온수기","가스온수기","NOR",0,"높이맞춤",""),',
-'    ("키오스크","키오스크","NOR",0,"장내부","랜선"),',
-'    ("POS","POS","NOR",0,"장내부","랜선"),',
-'    ("충전","충전돼지","NOR",0,1200,""),',
-']',
-'',
-'def match_equipment(texts):',
-'    matched = []',
-'    used = set()',
-'    for t in texts:',
-'        for kw, name, ctype, kwv, h, note in EQ_DB:',
-'            k = (round(t["x"]/50), round(t["y"]/50))',
-'            if kw in t["text"] and k not in used:',
-'                used.add(k)',
-'                matched.append({"name":name,"type":ctype,"kw":kwv,"h":h,"note":note,"x":t["x"],"y":t["y"]})',
-'                break',
-'    return matched',
-'',
-'_doc = None',
-'_equip = None',
-'',
-'def process_dxf_file():',
-'    global _doc, _equip',
-'    _doc = ezdxf.readfile("/tmp/input.dxf")',
-'    texts = extract_texts(_doc)',
-'    _equip = match_equipment(texts)',
-'    return json.dumps({',
-'        "texts":[{"text":t["text"],"x":float(t["x"]),"y":float(t["y"])} for t in texts],',
-'        "equip":[{"name":e["name"],"type":e["type"],"kw":float(e["kw"]),"h":str(e["h"]),"note":e["note"],"x":float(e["x"]),"y":float(e["y"])} for e in _equip]',
-'    })',
-'',
-'def generate_power():',
-'    global _doc, _equip',
-'    msp = _doc.modelspace()',
-'    if "OJ-CH-TEXT" not in [l.dxf.name for l in _doc.layers]:',
-'        _doc.layers.add("OJ-CH-TEXT", color=7)',
-'    wp_c = 0',
-'    lan_c = 0',
-'    for eq in _equip:',
-'        if eq["type"] not in ("WP","NOR"): continue',
-'        c = 30 if eq["type"]=="WP" else 5',
-'        x,y = eq["x"],eq["y"]',
-'        msp.add_circle((x,y),120,dxfattribs={"layer":"0","color":c})',
-'        msp.add_circle((x-35,y+15),18,dxfattribs={"layer":"0","color":c})',
-'        msp.add_circle((x+35,y+15),18,dxfattribs={"layer":"0","color":c})',
-'        msp.add_line((x-80,y+120),(x+80,y+120),dxfattribs={"layer":"0","color":c})',
-'        if eq["type"]=="WP":',
-'            msp.add_circle((x,y),75,dxfattribs={"layer":"0","color":c})',
-'            msp.add_mtext("WP",dxfattribs={"layer":"0","char_height":80,"color":c,"insert":(x-50,y-150)})',
-'            wp_c+=1',
-'        if eq["note"] and "랜선" in str(eq["note"]):',
-'            lx=x+250',
-'            msp.add_circle((lx,y),100,dxfattribs={"layer":"0","color":3})',
-'            msp.add_mtext("L",dxfattribs={"layer":"0","char_height":100,"color":3,"insert":(lx-35,y-40)})',
-'            lan_c+=1',
-'    lx2,ly0=20300,5700',
-'    msp.add_text("SYMBOL",dxfattribs={"layer":"0","height":120,"insert":(lx2,ly0)})',
-'    msp.add_text("DESCRIPTION",dxfattribs={"layer":"0","height":120,"insert":(lx2+1500,ly0)})',
-'    msp.add_text("Q\\x27TY",dxfattribs={"layer":"0","height":120,"insert":(lx2+3900,ly0)})',
-'    legend=[("2구 콘센트","2EA"),("2구 방우형 콘센트",f"{wp_c}EA"),("4구 콘센트","2EA"),("2구 콘센트 (스텐)","6EA"),("전등(디밍기) 스위치 (스텐)","1EA"),("LAN선",f"{max(lan_c,4)}EA"),("집결지","1EA")]',
-'    ly=ly0-400',
-'    for desc,qty in legend:',
-'        msp.add_circle((lx2+100,ly),110,dxfattribs={"layer":"0","color":30})',
-'        msp.add_mtext(desc,dxfattribs={"layer":"0","char_height":90,"insert":(lx2+700,ly+50)})',
-'        msp.add_mtext(qty,dxfattribs={"layer":"0","char_height":90,"insert":(lx2+3900,ly+50)})',
-'        ly-=400',
-'    _doc.saveas("/tmp/output.dxf")',
-'    return wp_c, lan_c',
-].join('\n');
+var PY_SRC = `
+import ezdxf, re, json, math
+
+def clean_mtext(raw):
+    text = raw.replace(chr(92)+"P", " ").replace("^J", " ")
+    text = re.sub(r"\\\\[fFCcWwHhAaQqLlOoKkTt][^;]*;", "", text)
+    text = re.sub(r"\\\\p[^;]*;", "", text)
+    text = text.replace("{", "").replace("}", "").replace(chr(92), "")
+    return re.sub(r"\\s+", " ", text).strip()
+
+def extract_texts(doc, bn=None, tr=(0,0), d=0):
+    r = []
+    ents = doc.blocks.get(bn) if bn else doc.modelspace()
+    if ents is None: return r
+    for e in ents:
+        if e.dxftype() == "TEXT":
+            r.append({"text": e.dxf.text.strip(), "x": e.dxf.insert.x+tr[0], "y": e.dxf.insert.y+tr[1]})
+        elif e.dxftype() == "MTEXT":
+            r.append({"text": clean_mtext(e.text), "x": e.dxf.insert.x+tr[0], "y": e.dxf.insert.y+tr[1]})
+        elif e.dxftype() == "INSERT" and d < 5:
+            r.extend(extract_texts(doc, e.dxf.name, (e.dxf.insert.x+tr[0], e.dxf.insert.y+tr[1]), d+1))
+    return r
+
+def extract_walls(doc, bn=None, tr=(0,0), d=0):
+    walls = []
+    ents = doc.blocks.get(bn) if bn else doc.modelspace()
+    if ents is None: return walls
+    for e in ents:
+        if e.dxftype() == "LINE" and e.dxf.layer in ("Han-Wal", "0"):
+            x1, y1 = e.dxf.start.x+tr[0], e.dxf.start.y+tr[1]
+            x2, y2 = e.dxf.end.x+tr[0], e.dxf.end.y+tr[1]
+            length = math.sqrt((x2-x1)**2+(y2-y1)**2)
+            if length > 1000:
+                walls.append(((x1,y1),(x2,y2)))
+        elif e.dxftype() == "LWPOLYLINE" and e.dxf.layer in ("Han-Wal", "0"):
+            pts = [(p[0]+tr[0], p[1]+tr[1]) for p in e.get_points(format="xy")]
+            for i in range(len(pts)-1):
+                x1,y1 = pts[i]
+                x2,y2 = pts[i+1]
+                length = math.sqrt((x2-x1)**2+(y2-y1)**2)
+                if length > 1000:
+                    walls.append(((x1,y1),(x2,y2)))
+        elif e.dxftype() == "INSERT" and d < 5:
+            wx = e.dxf.insert.x+tr[0]
+            wy = e.dxf.insert.y+tr[1]
+            walls.extend(extract_walls(doc, e.dxf.name, (wx,wy), d+1))
+    return walls
+
+def pt_to_seg(px, py, x1, y1, x2, y2):
+    dx, dy = x2-x1, y2-y1
+    if dx==0 and dy==0: return math.sqrt((px-x1)**2+(py-y1)**2), x1, y1
+    t = max(0, min(1, ((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy)))
+    qx, qy = x1+t*dx, y1+t*dy
+    return math.sqrt((px-qx)**2+(py-qy)**2), qx, qy
+
+def nearest_wall(px, py, walls, max_d=3000):
+    best = (float("inf"), px, py, "H")
+    for (x1,y1),(x2,y2) in walls:
+        d, qx, qy = pt_to_seg(px, py, x1, y1, x2, y2)
+        orient = "H" if abs(x2-x1) > abs(y2-y1) else "V"
+        if d < best[0] and d < max_d:
+            best = (d, qx, qy, orient)
+    return best
+
+EQ_DB = [
+    ("음료 쇼케이스","음료쇼케이스","WP",0.5,2000,""),
+    ("상부 그리들","가스낮은그리들","WP",0,600,"랜선"),
+    ("서랍식냉장고","낮은서랍식냉장고","WP",0.6,600,"랜선"),
+    ("슬라이딩 온장고","서랍식온장고","WP",1.5,600,"단독"),
+    ("테이블온장고","테이블온장고","WP",0.6,600,""),
+    ("토핑냉장고","김밥테이블냉장고","WP",0.4,600,""),
+    ("수비드","수비드머신","WP",2.0,600,"단독"),
+    ("식세기","식기세척기","WP",3.8,1500,"단독직결"),
+    ("3구렌지","3구렌지","WP",0,1200,""),
+    ("튀김기","가스튀김기","WP",0.4,600,""),
+    ("45BOX","45박스","WP",1.2,2000,""),
+    ("쇼케이스","음료쇼케이스","WP",0.5,2000,""),
+    ("제빙기","제빙기","WP",1.2,600,"맥주+제빙기"),
+    ("그리들","가스그리들","WP",0,600,""),
+    ("정수기","정수기","NOR",0,"장내부",""),
+    ("온수기장","가스온수기","NOR",0,"높이맞춤",""),
+    ("온수기","가스온수기","NOR",0,"높이맞춤",""),
+    ("키오스크","키오스크","NOR",0,"장내부","랜선"),
+    ("POS","POS","NOR",0,"장내부","랜선"),
+    ("충전","충전돼지","NOR",0,1200,""),
+]
+
+def match_equipment(texts):
+    matched = []
+    used = set()
+    for t in texts:
+        for kw, name, ctype, kwv, h, note in EQ_DB:
+            k = (round(t["x"]/50), round(t["y"]/50))
+            if kw in t["text"] and k not in used:
+                used.add(k)
+                matched.append({"name":name,"type":ctype,"kw":kwv,"h":h,"note":note,"x":t["x"],"y":t["y"]})
+                break
+    return matched
+
+_doc = None
+_equip = None
+_walls = None
+
+def process_dxf_file():
+    global _doc, _equip, _walls
+    _doc = ezdxf.readfile("/tmp/input.dxf")
+    texts = extract_texts(_doc)
+    _walls = extract_walls(_doc)
+    _equip = match_equipment(texts)
+    return json.dumps({
+        "texts":[{"text":t["text"],"x":float(t["x"]),"y":float(t["y"])} for t in texts],
+        "equip":[{"name":e["name"],"type":e["type"],"kw":float(e["kw"]),"h":str(e["h"]),"note":e["note"],"x":float(e["x"]),"y":float(e["y"])} for e in _equip],
+        "walls":len(_walls)
+    })
+
+def generate_power():
+    global _doc, _equip, _walls
+    msp = _doc.modelspace()
+    if "OJ-CH-TEXT" not in [l.dxf.name for l in _doc.layers]:
+        _doc.layers.add("OJ-CH-TEXT", color=7)
+    wp_c = 0
+    lan_c = 0
+    for eq in _equip:
+        if eq["type"] not in ("WP","NOR"): continue
+        # ★ Wall projection
+        dist, wx, wy, orient = nearest_wall(eq["x"], eq["y"], _walls)
+        c = 30 if eq["type"]=="WP" else 5
+        # Outlet circle
+        msp.add_circle((wx,wy),120,dxfattribs={"layer":"0","color":c})
+        msp.add_circle((wx-35,wy+15),18,dxfattribs={"layer":"0","color":c})
+        msp.add_circle((wx+35,wy+15),18,dxfattribs={"layer":"0","color":c})
+        msp.add_line((wx-80,wy+120),(wx+80,wy+120),dxfattribs={"layer":"0","color":c})
+        if eq["type"]=="WP":
+            msp.add_circle((wx,wy),75,dxfattribs={"layer":"0","color":c})
+            if orient == "H":
+                wpy = wy + (32 if wy < eq["y"] else -32)
+                msp.add_mtext("WP",dxfattribs={"layer":"0","char_height":80,"color":c,"insert":(wx-19,wpy)})
+            else:
+                wpx = wx + (32 if wx > eq["x"] else -32)
+                msp.add_mtext("WP",dxfattribs={"layer":"0","char_height":80,"color":c,"insert":(wpx,wy-19)})
+            wp_c+=1
+        if eq["note"] and "랜선" in str(eq["note"]):
+            if orient == "H":
+                lx, ly = wx+200, wy
+            else:
+                lx, ly = wx, wy+200
+            msp.add_circle((lx,ly),100,dxfattribs={"layer":"0","color":3})
+            msp.add_mtext("L",dxfattribs={"layer":"0","char_height":100,"color":3,"insert":(lx-35,ly-40)})
+            lan_c+=1
+    lx2,ly0=20300,5700
+    msp.add_text("SYMBOL",dxfattribs={"layer":"0","height":120,"insert":(lx2,ly0)})
+    msp.add_text("DESCRIPTION",dxfattribs={"layer":"0","height":120,"insert":(lx2+1500,ly0)})
+    msp.add_text("Q\\x27TY",dxfattribs={"layer":"0","height":120,"insert":(lx2+3900,ly0)})
+    legend=[("2구 콘센트","2EA"),("2구 방우형 콘센트",f"{wp_c}EA"),("4구 콘센트","2EA"),("2구 콘센트 (스텐)","6EA"),("전등(디밍기) 스위치 (스텐)","1EA"),("LAN선",f"{max(lan_c,4)}EA"),("집결지","1EA")]
+    ly=ly0-400
+    for desc,qty in legend:
+        msp.add_circle((lx2+100,ly),110,dxfattribs={"layer":"0","color":30})
+        msp.add_mtext(desc,dxfattribs={"layer":"0","char_height":90,"insert":(lx2+700,ly+50)})
+        msp.add_mtext(qty,dxfattribs={"layer":"0","char_height":90,"insert":(lx2+3900,ly+50)})
+        ly-=400
+    _doc.saveas("/tmp/output.dxf")
+    return wp_c, lan_c
+`;
 
 async function initPy(){
   try{
@@ -208,14 +262,9 @@ async function hFile(file){
   document.getElementById('lg').innerHTML='';
   log('파일: '+file.name+' ('+(file.size/1024).toFixed(0)+'KB)');
   dz.classList.add('ok');dz.querySelector('h3').textContent=file.name;dz.querySelector('p').textContent=(file.size/1024).toFixed(0)+'KB';
-
   var ab=await file.arrayBuffer();
-  var bytes=new Uint8Array(ab);
-
-  // Write to Pyodide virtual filesystem
-  py.FS.writeFile('/tmp/input.dxf', bytes);
-  log('ezdxf 파싱 중 (블록 재귀 탐색)...');
-
+  py.FS.writeFile('/tmp/input.dxf', new Uint8Array(ab));
+  log('ezdxf 파싱 중 (블록 재귀 + 벽체 탐색)...');
   try{
     var resStr=await py.runPythonAsync('process_dxf_file()');
     var d=JSON.parse(resStr);
@@ -223,7 +272,7 @@ async function hFile(file){
     var wc=ME.filter(function(e){return e.type==='WP'}).length;
     var nc=ME.filter(function(e){return e.type==='NOR'}).length;
     var lc=ME.filter(function(e){return e.note&&e.note.indexOf('랜선')>=0}).length;
-    log('텍스트 '+AT.length+'개 / 장비 '+ME.length+'종','ok');
+    log('텍스트 '+AT.length+'개 / 장비 '+ME.length+'종 / 벽체 '+d.walls+'개','ok');
     log('WP:'+wc+' 일반:'+nc+' LAN:'+lc);
     document.getElementById('iS').style.display='block';
     document.getElementById('sT').textContent=AT.length;
@@ -243,13 +292,12 @@ async function hFile(file){
 }
 
 async function generate(){
-  log('');log('=== 전기도면 DXF 생성 (ezdxf) ===','inf');
+  log('');log('=== 전기도면 DXF 생성 (벽면 투영) ===','inf');
   try{
     var resStr=await py.runPythonAsync('_wc,_lc=generate_power()\njson.dumps({"wp":_wc,"lan":_lc})');
     var res=JSON.parse(resStr);
-    // Read output file from virtual FS
     rBytes=py.FS.readFile('/tmp/output.dxf');
-    log('DXF 생성 완료! WP:'+res.wp+' LAN:'+res.lan,'ok');
+    log('DXF 생성! WP:'+res.wp+' LAN:'+res.lan+' (벽면 투영 완료)','ok');
     log('파일: '+(rBytes.length/1024).toFixed(0)+'KB');
     document.getElementById('dB').style.display='block';
     stab(1);
@@ -259,8 +307,7 @@ async function generate(){
 function dlDXF(){
   if(!rBytes)return;
   var b=new Blob([rBytes],{type:'application/octet-stream'});
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(b);a.download='POWER_PLAN_AUTO.dxf';
+  var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='POWER_PLAN_AUTO.dxf';
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   log('DXF 다운로드 완료','ok');
 }
